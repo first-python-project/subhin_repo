@@ -8,6 +8,12 @@ import openpyxl
 import re
 from faker import Faker
 from docx import Document
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+import time
 
 app = Flask(__name__) # 초기화
 
@@ -36,55 +42,38 @@ def make_customer_list():
 
 
 ####마스킹 처리####
-def make_masking_file(file):
-    workbook = openpyxl.load_workbook(file)
-    
-    #파일 내 중요 정보(전화번호 가운데 3, 4자리, 주소에서 도,시,구로 끝나는 것 제외, 이메일) 정규표현식
-    phone_number_pattern = r"\d{2,3}-\d{3,4}-\d{4}"      #전화번호 가운데 4자리 찾기
-    email_pattern = "[\w\.-]+@[\w\.-]+"                 #이메일 찾기
-
-    # 모든 시트 순회
-    for sheet_name in workbook.sheetnames:
-        sheet = workbook[sheet_name]
-
-        # 각 셀 순회하며 중요정보 찾기
-        for row in sheet.iter_rows():
-            for cell in row:
-                if cell.value:
-                    # 셀의 값에서 중요정보 각 패턴 찾기
-                    phone_number_in_cell = re.findall(phone_number_pattern, str(cell.value))
-                    email_in_cell = re.findall(email_pattern, str(cell.value))
-
-                    if cell.column == 1:  # 이름이 있는 열
-                        name = cell.value
-                        if len(name) > 1:  # 이름의 길이가 2자 이상인 경우 (성이 포함된 경우)
-                            masked_name = name[0] + '*' * (len(name) - 1)  # 성을 제외한 나머지 부분을 마스킹 처리
-                            cell.value = masked_name
-
-                    if phone_number_in_cell:
-                        # 전화번호 가운데 자릿수가 3자리, 4자리인 경우도 마스킹 처리
-                        for phone_number in phone_number_in_cell:
-                            split_phone_number = phone_number.split('-')
-                            if len(split_phone_number[1]) == 3:
-                                #전화번호 가운데 3자리 마스킹 처리
-                                masked_phone_number = phone_number[:3] + "-***-" + phone_number[-4:]
-                            else:
-                                #전화번호 가운데 4자리 마스킹 처리
-                                masked_phone_number = phone_number[:4] + "-****-" + phone_number[-4:]
-                        cell.value = cell.value.replace(phone_number, masked_phone_number)
-                    if email_in_cell:
-                        for email in email_in_cell:
-                            # 이메일을 마스킹 처리
-                            masked_email = email[:4] + "*****" + email[email.index("@"):]
-                            cell.value = cell.value.replace(email, masked_email)
-
-    # 수정된 내용을 새로운 파일로 저장
+def process_document():
+    dir_path = os.getcwd()
+    masking_word_txt = 'word.txt'
     upload_path = "uploads"
-    masked_file = os.path.join(upload_path, "masked_your_excel_file.xlsx")
-    workbook.save(masked_file)
-    
-    # 클라이언트에게 다운로드할 파일을 응답으로 전달
-    return masked_file
+    # txt파일에 저장된 특정 단어 읽기
+    def read_masking_word(file_path):
+        with open(file_path, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+            # 공백제거
+            return [line.strip() for line in lines]
+        
+    masking_word = read_masking_word(masking_word_txt)
+
+    # 경로의 doc, docx 파일 찾기 
+    for file in os.listdir(dir_path):
+        if file.endswith(".docx") or file.endswith(".doc"):
+            input_doc = os.path.join(dir_path, file)
+            output_doc = os.path.join(upload_path, f"{os.path.splitext(file)[0]}_masking.docx")
+
+            doc = Document(input_doc)
+
+            # doc, docx 파일 특정 단어 변경
+            for file_doc in doc.paragraphs:
+                for word in masking_word:
+                    if word in file_doc.text:
+                        # 단어길이만큼 *로 변경
+                        masking = '*' * len(word)
+                        file_doc.text = file_doc.text.replace(word, masking)
+                        
+            doc.save(output_doc)
+    return(output_doc)
+
 
 # 한글 파일인 경우 특정 단어가 있으면 마스킹하는 함수
 # txt파일을 통해 특정단어 설정
@@ -166,6 +155,49 @@ def make_zip_file(passed_files):
     compressed_file = "compress.zip"
     return compressed_file
 
+
+####필터링 한 결과로 메일 재전송 ####
+def send_email_with_attachment():
+    sender_email = "boanproject1234@naver.com"
+    receiver_email = "dbdbtnqls001@naver.com"
+    subject = "압축 된 파일입니다"
+    body = "압축된 파일"
+
+    zip_file_name = "compress.zip"
+    upload_folder = "uploads"
+
+    zip_file_path = os.path.join(upload_folder, zip_file_name)
+    with zipfile.ZipFile(zip_file_path, 'w') as zipf:
+        for file in os.listdir(upload_folder):
+            file_path = os.path.join(upload_folder, file)
+            zipf.write(file_path, os.path.basename(file_path))
+
+    smtp_server = "smtp.naver.com"
+    smtp_port = 587
+    smtp_username = "boanproject1234@naver.com"
+    smtp_password = "!Qhdkscjfwj@"
+
+    message = MIMEMultipart()
+    message['From'] = sender_email
+    message['To'] = receiver_email
+    message['Subject'] = subject
+    message.attach(MIMEText(body, 'plain'))
+
+    with open(zip_file_path, 'rb') as attachment:
+        base = MIMEBase('application', 'zip')
+        base.set_payload(attachment.read())
+        encoders.encode_base64(base)
+        base.add_header('Content-Disposition', 'attachment', filename=zip_file_name)
+        message.attach(base)
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(smtp_username, smtp_password)
+        server.sendmail(sender_email, receiver_email, message.as_string())
+
+    
+    os.remove(zip_file_path)
+
 @app.route('/') # 라우터
 def list():
     #make_customer_list()
@@ -187,6 +219,8 @@ def check_file():
 
     compressed_file = make_zip_file(passed_files)
     compressed_file_path = os.path.join("uploads", compressed_file)
+    time.sleep(3)
+    send_email_with_attachment()
     return send_file(compressed_file_path, as_attachment=True)
 
 if __name__ == "__main__":
