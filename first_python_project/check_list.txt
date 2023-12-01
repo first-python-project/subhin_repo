@@ -1,0 +1,10 @@
+#파이썬 관련
+__main__,def
+
+#자바 관련
+println,system.out,i++
+
+#C/C++ 관련
+cout,#include,printf,scanf
+
+void

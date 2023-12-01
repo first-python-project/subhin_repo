@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>다중 파일 업로드</title>
+    <style>
+        #fileList {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>다중 파일 업로드</h1>
+    <form id="uploadForm" method="post" action="{{url_for('check_source_code')}}" enctype="multipart/form-data">
+        <input type="submit" value="보내기"><br>
+        <label>받는 사람 </label>
+        <input type="text" name="accepter"><br>
+        <label>제목 </label>
+        <input type="text" name="title"><br>
+        <input type="file" name="file[]" id="fileInput" multiple>
+    </form>
+
+    <div id="fileList"></div>
+
+    <script>
+        var formData = new FormData(); // 전역 변수로 FormData를 초기화
+    
+        document.getElementById('fileInput').addEventListener('change', function() {
+            var fileListDiv = document.getElementById('fileList');
+    
+            // 새로 선택된 파일들을 처리
+            var files = this.files;
+            for (var i = 0; i < files.length; i++) {
+                formData.append('file[]', files[i]); // 기존 formData 객체에 파일 추가
+    
+                var fileItem = document.createElement('div');
+                fileItem.textContent = files[i].name;
+                fileListDiv.appendChild(fileItem);
+            }
+        });
+    
+        // 폼 제출시 전역 formData 객체 사용
+        document.getElementById('uploadForm').onsubmit = function(event) {
+            event.preventDefault();
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', this.action);
+            xhr.send(formData);
+        };
+    </script>
+</body>
+</html>
